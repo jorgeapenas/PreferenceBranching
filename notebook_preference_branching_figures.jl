@@ -36,8 +36,8 @@ where ``σ ∈ [0,1) ∪ (1,∞)`` governs complementarity between efforts (high
 higher complementarity).
 
 Player ``i``'s material payoff is ``Πᵢ = [G(\mathbf{e})]^α - e_i^β / β`` (Eqs. 2 and 3), and her utility
-weights co-players' payoffs by ``λᵢ ∈ (-1/(n-1), 1]``. We work with the reparametrization
-``θᵢ ≡ 1 + λᵢ(n-1) ∈ (0, n]`` (Eq. 6).
+weights co-players' payoffs by ``λᵢ > -1/(n-1)``. We work with the reparametrization
+``θᵢ ≡ 1 + λᵢ(n-1) > 0`` (Eq. 6).
 
 Under the assumption ``β + σ - 1 ≠ 0``, the game admits a unique interior Nash equilibrium
 (Proposition 1). Substituting it into the material payoff gives Eq. (8):
@@ -75,8 +75,12 @@ and ``T = 2 × 10^4`` generations, as stated in the caption of Fig. 1.
 Figure 1 varies ``σ ∈ \{0.7, 0.3, 0.1\}`` at ``n = 2``.
 Figure 2 fixes ``σ = 0.16`` and compares ``n = 2`` and ``n = 4``.
 
-For plotting we subsample 100 individuals at each saved generation (every 100 generations),
-keeping PDF files light without affecting simulation accuracy.
+For plotting we subsample 100 individuals at each saved generation (every 100 generations).
+These samples are saved to `figure1_samples.csv` and `figure2_samples.csv`, next to this
+notebook, so that the figures can be redrawn without re-running the simulations. Set
+`rerun_simulations = true` below to simulate again (about 1.5 min) and overwrite the saved
+samples; with other Julia or package versions, this may give a different realization of the
+same process.
 """
 
 # ╔═╡ 0f6e9c66-0c00-44c5-94da-8a1df2660004
@@ -86,10 +90,11 @@ const SIM_PARAMS = (
 	mut_prob     = 0.01,     # mutation probability per offspring
 	mut_std      = 0.001,    # Gaussian mutation step std dev (= s in the paper)
 	α            = 0.5,      # public-good satisfaction curvature (Eq. 2)
-	β            = 1.0,      # effort-cost elasticity (Eq. 3); β = 1 → linear marginal cost
+	β            = 1.0,      # effort-cost elasticity (Eq. 3); β = 1 → constant marginal cost
 	trait_max    = 1.0,      # upper bound for λ (λ ≤ 1)
 	trait_buffer = 1e-6,     # keeps λ strictly above -1/(n-1)
-	plot_sample  = 100       # individuals plotted per saved generation
+	plot_sample  = 100,      # individuals plotted per saved generation
+	rerun_simulations = false  # false: redraw figures from the saved samples (CSV files)
 )
 
 # ╔═╡ 0f6e9c66-0c00-44c5-94da-8a1df2660005
@@ -97,10 +102,10 @@ md"""
 ## 2. Analytical quantities
 
 We implement:
-- ``λ^*`` (Proposition 2, Eq. 9) — the unique convergence-stable singular trait;
-- ``σ̄(α,β,n)`` (Lemma 1, Eq. 12) — the branching threshold: the singular point is
+- ``λ^*`` (Proposition 2, Eq. 13) — the unique convergence-stable singular trait;
+- ``σ̄(α,β,n)`` (Lemma 1, Eqs. 18–19) — the branching threshold: the singular point is
   an evolutionary branching point if and only if ``0 ≤ σ < σ̄``;
-- the equilibrium material payoff ``Πᵢ^*`` (Eq. 11) used in the simulation.
+- the equilibrium material payoff ``Πᵢ^*`` (Eq. 8) used in the simulation.
 """
 
 # ╔═╡ 0f6e9c66-0c00-44c5-94da-8a1df2660006
@@ -135,14 +140,14 @@ begin
 	end
 
 	"""
-	Material payoff of player i at the interior Nash equilibrium (Eq. 11).
+	Material payoff of player i at the interior Nash equilibrium (Eq. 8).
 
 	Arguments:
 	  λ_group : vector of λ values for all n players in the group
 	  i       : index of the focal player (1-based)
 	  α, β, σ, n : model parameters
 
-	The exponent a = (1-σ)/(β+σ-1) appears throughout (derived from Eq. 8).
+	The exponent a = (1-σ)/(β+σ-1) appears throughout (derived from Eqs. 7–8).
 	Requires β + σ - 1 ≠ 0 and θⱼ > 0 for all j.
 	"""
 	function payoff_i(λ_group::AbstractVector{<:Real}, i::Int, α, β, σ, n)
@@ -175,12 +180,12 @@ md"""
 Each generation proceeds as follows (Section 3.3 of the paper):
 
 1. Randomly partition the population into groups of size ``n``.
-2. Compute each individual's material payoff from Eq. 11.
+2. Compute each individual's material payoff from Eq. 8.
 3. Shift payoffs to non-negative fecundities (add a small constant).
 4. Sample the next generation with multinomial (Wright–Fisher) probabilities
    proportional to fecundity.
 5. Apply Gaussian mutations with probability ``μ`` and std dev ``s``;
-   clamp ``λ`` to the admissible interval ``(-1/(n-1), 1]``.
+   clamp ``λ`` to ``(-1/(n-1), 1]``, as stated in Section 3.3 of the paper.
 """
 
 # ╔═╡ 0f6e9c66-0c00-44c5-94da-8a1df2660008
@@ -276,8 +281,9 @@ end
 md"""
 ## 4. Plotting helper
 
-Each panel shows a scatter of a random subsample of individuals (to keep the PDF
-file light), with a horizontal line at ``λ^*``.
+Each panel shows the sampled individuals as opaque grey markers, with a horizontal line
+at ``λ^*``. To keep the PDF files small and fast to display, points hidden behind other
+markers are dropped before plotting (one marker per generation and trait bin).
 """
 
 # ╔═╡ 0f6e9c66-0c00-44c5-94da-8a1df2660010
@@ -296,15 +302,54 @@ begin
 	end
 
 	"""
+	Save plotted samples (a Dict run => DataFrame with columns generation, trait)
+	to a CSV file with columns run, generation, trait.
+	"""
+	function write_samples(path::AbstractString, samples::AbstractDict)
+		open(path, "w") do io
+			println(io, "run,generation,trait")
+			for (run, df) in sort(collect(samples); by = first)
+				for r in eachrow(df)
+					println(io, run, ",", r.generation, ",", r.trait)
+				end
+			end
+		end
+	end
+
+	"""
+	Read samples written by `write_samples`; returns a Dict run => DataFrame.
+	"""
+	function read_samples(path::AbstractString)
+		samples = Dict{String,DataFrame}()
+		for line in Iterators.drop(eachline(path), 1)
+			run, g, t = split(line, ",")
+			df = get!(() -> DataFrame(generation = Int[], trait = Float64[]), samples, run)
+			push!(df, (parse(Int, g), parse(Float64, t)))
+		end
+		return samples
+	end
+
+	"""
+	Keep one point per (generation, trait bin), with `nbins` bins spanning the trait
+	range. A bin is about half a marker high, so with opaque markers the dropped
+	points are hidden behind the kept ones.
+	"""
+	function thin_for_plot(df::DataFrame; nbins::Int = 200)
+		lo, hi = extrema(df.trait)
+		Δ   = max((hi - lo) / nbins, eps())
+		key = [(g, floor(Int, (t - lo) / Δ)) for (g, t) in zip(df.generation, df.trait)]
+		return df[unique(i -> key[i], 1:nrow(df)), :]
+	end
+
+	"""
 	Build one panel: scatter of trait over time, with a reference line at λ*.
 
 	Arguments:
-	  df            : snapshot DataFrame (columns: generation, trait)
+	  df            : sampled individuals (columns: generation, trait)
 	  λstar         : singular trait value (shown as a horizontal line)
 	  panel_label   : bold letter label, e.g. "A"
 	  title_str     : LaTeX title string for the panel
 	  legend_pos    : position for the legend, e.g. :topright
-	  sample_size   : individuals plotted per generation (nothing = all)
 	  guidefontsize : font size for axis labels (default 15; use ~20 for larger panels)
 	  panelfontsize : font size for the panel letter annotation (default 18; use ~23 for larger)
 	"""
@@ -314,22 +359,20 @@ begin
 		panel_label   ::String             = "",
 		title_str     ::AbstractString     = "",
 		legend_pos                         = false,
-		sample_size   ::Union{Nothing,Int} = 100,
 		guidefontsize ::Int                = 15,
 		legendfontsize::Int                = 15,
 		titlefontsize ::Int                = 15,
 		panelfontsize ::Int                = 18
 	)
-		plot_df = sample_size === nothing ? df : subsample(df, sample_size)
+		plot_df = thin_for_plot(df)
 
 		p = @df plot_df scatter(
 			:generation, :trait;
 			markersize        = 2.0,
 			markerstrokewidth = 0,
-			markercolor       = :gray50,
-			markeralpha       = 0.25,
+			markercolor       = :gray60,
 			label             = "",
-			xlabel            = "time",
+			xlabel            = "generation",
 			ylabel            = L"trait, $\lambda$",
 			legend            = legend_pos,
 			title             = title_str,
@@ -399,23 +442,30 @@ begin
 
 	fig1_panels = []
 
+	fig1_samples_file = joinpath(@__DIR__, "figure1_samples.csv")
+	fig1_samples = SIM_PARAMS.rerun_simulations ?
+		Dict{String,DataFrame}() : read_samples(fig1_samples_file)
+
 	for cfg in fig1_configs
-		λ★ = lambda_star(fig1_α, fig1_β, cfg.σ, fig1_n)
+		λ★     = lambda_star(fig1_α, fig1_β, cfg.σ, fig1_n)
+		run_id = "sigma=$(cfg.σ)"
 
-		df = run_simulation(;
-			α = fig1_α, β = fig1_β, σ = cfg.σ, n = fig1_n,
-			N            = SIM_PARAMS.N,
-			mut_prob     = SIM_PARAMS.mut_prob,
-			mut_std      = SIM_PARAMS.mut_std,
-			trait_max    = SIM_PARAMS.trait_max,
-			trait_buffer = SIM_PARAMS.trait_buffer
-		)
+		if SIM_PARAMS.rerun_simulations
+			df = run_simulation(;
+				α = fig1_α, β = fig1_β, σ = cfg.σ, n = fig1_n,
+				N            = SIM_PARAMS.N,
+				mut_prob     = SIM_PARAMS.mut_prob,
+				mut_std      = SIM_PARAMS.mut_std,
+				trait_max    = SIM_PARAMS.trait_max,
+				trait_buffer = SIM_PARAMS.trait_buffer
+			)
+			fig1_samples[run_id] = subsample(df, SIM_PARAMS.plot_sample)
+		end
 
-		p = make_panel(df, λ★;
+		p = make_panel(fig1_samples[run_id], λ★;
 			panel_label    = cfg.label,
 			title_str      = latexstring("\\sigma = ", string(cfg.σ)),
 			legend_pos     = cfg.legend,
-			sample_size    = SIM_PARAMS.plot_sample,
 			guidefontsize  = 20,
 			legendfontsize = 20,
 			panelfontsize  = 23,
@@ -436,7 +486,8 @@ begin
 		margin       = 6Plots.mm
 	)
 
-	savefig(figure1, "three_panel_sigma_cases.pdf")
+	SIM_PARAMS.rerun_simulations && write_samples(fig1_samples_file, fig1_samples)
+	savefig(figure1, joinpath(@__DIR__, "three_panel_sigma_cases.pdf"))
 	figure1
 end
 
@@ -477,23 +528,31 @@ begin
 
 	fig2_panels = []
 
+	# With rerun_simulations = true, run Figure 1 first: Figure 2 continues its random stream.
+	fig2_samples_file = joinpath(@__DIR__, "figure2_samples.csv")
+	fig2_samples = SIM_PARAMS.rerun_simulations ?
+		Dict{String,DataFrame}() : read_samples(fig2_samples_file)
+
 	for cfg in fig2_configs
-		λ★ = lambda_star(fig2_α, fig2_β, fig2_σ, cfg.n)
+		λ★     = lambda_star(fig2_α, fig2_β, fig2_σ, cfg.n)
+		run_id = "n=$(cfg.n)"
 
-		df = run_simulation(;
-			α = fig2_α, β = fig2_β, σ = fig2_σ, n = cfg.n,
-			N            = SIM_PARAMS.N,
-			mut_prob     = SIM_PARAMS.mut_prob,
-			mut_std      = SIM_PARAMS.mut_std,
-			trait_max    = SIM_PARAMS.trait_max,
-			trait_buffer = SIM_PARAMS.trait_buffer
-		)
+		if SIM_PARAMS.rerun_simulations
+			df = run_simulation(;
+				α = fig2_α, β = fig2_β, σ = fig2_σ, n = cfg.n,
+				N            = SIM_PARAMS.N,
+				mut_prob     = SIM_PARAMS.mut_prob,
+				mut_std      = SIM_PARAMS.mut_std,
+				trait_max    = SIM_PARAMS.trait_max,
+				trait_buffer = SIM_PARAMS.trait_buffer
+			)
+			fig2_samples[run_id] = subsample(df, SIM_PARAMS.plot_sample)
+		end
 
-		p = make_panel(df, λ★;
+		p = make_panel(fig2_samples[run_id], λ★;
 			panel_label    = cfg.label,
 			title_str      = latexstring("n = ", string(cfg.n)),
 			legend_pos     = cfg.legend,
-			sample_size    = SIM_PARAMS.plot_sample,
 			guidefontsize  = 20,
 			legendfontsize = 20,
 			panelfontsize  = 23,
@@ -514,7 +573,8 @@ begin
 		margin       = 6Plots.mm
 	)
 
-	savefig(figure2, "two_panel_n_comparison_sigma_016.pdf")
+	SIM_PARAMS.rerun_simulations && write_samples(fig2_samples_file, fig2_samples)
+	savefig(figure2, joinpath(@__DIR__, "two_panel_n_comparison_sigma_016.pdf"))
 	figure2
 end
 
